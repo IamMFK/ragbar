@@ -37,6 +37,7 @@
       display: block;
       background: radial-gradient(circle at center, #1f2833 0%, #0b0c10 100%);
       box-shadow: 0 0 30px rgba(0, 0, 0, 0.8);
+      touch-action: none;
     }
 
     /* رابط کاربری بالای صفحه (HUD) */
@@ -282,7 +283,7 @@ class SoundController {
  * مدیریت ورودی‌ها (کیبورد و جوی‌استیک لمسی موبایل)
  */
 class InputHandler {
-  constructor() {
+  constructor(canvas) {
     this.keys = {};
     this.joystick = {
       active: false,
@@ -304,24 +305,21 @@ class InputHandler {
       this.keys[e.key.toLowerCase()] = false;
     });
 
-    // رویدادهای لمسی برای موبایل (جوی‌استیک شناور)
-    window.addEventListener('touchstart', (e) => {
+    // رویدادهای لمسی برای موبایل (جوی‌استیک شناور روی کانواس)
+    canvas.addEventListener('touchstart', (e) => {
       if (sound) sound.init();
-      // اگر روی دکمه یا مودال کلیک نشده باشد جوی‌استیک فعال شود
-      if (e.target.closest('.modal') || e.target.closest('button')) return;
+      if (this.joystick.active) return;
 
       for (let touch of e.changedTouches) {
-        if (!this.joystick.active) {
-          this.joystick.active = true;
-          this.joystick.identifier = touch.identifier;
-          this.joystick.startX = touch.clientX;
-          this.joystick.startY = touch.clientY;
-          this.joystick.x = touch.clientX;
-          this.joystick.y = touch.clientY;
-          this.joystick.dx = 0;
-          this.joystick.dy = 0;
-          break;
-        }
+        this.joystick.active = true;
+        this.joystick.identifier = touch.identifier;
+        this.joystick.startX = touch.clientX;
+        this.joystick.startY = touch.clientY;
+        this.joystick.x = touch.clientX;
+        this.joystick.y = touch.clientY;
+        this.joystick.dx = 0;
+        this.joystick.dy = 0;
+        break;
       }
     }, { passive: true });
 
@@ -644,7 +642,7 @@ class GameEngine {
   constructor() {
     this.canvas = document.getElementById('gameCanvas');
     this.ctx = this.canvas.getContext('2d');
-    this.input = new InputHandler();
+    this.input = new InputHandler(this.canvas);
     this.resizeCanvas();
 
     window.addEventListener('resize', () => this.resizeCanvas());
