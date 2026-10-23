@@ -413,28 +413,6 @@ class InputHandler {
     if (!this.joyActive || this.joyKnob < 6) return null;
     return { x: this.joyX / this.joyRadius, y: this.joyY / this.joyRadius };
   }
-
-  draw(ctx) {
-    if (!this.joyActive) return;
-    ctx.save();
-    // پایه
-    ctx.beginPath();
-    ctx.arc(this.baseX, this.baseY, this.joyRadius, 0, Math.PI * 2);
-    ctx.strokeStyle = 'rgba(102, 252, 241, 0.35)';
-    ctx.lineWidth = 2;
-    ctx.stroke();
-    ctx.fillStyle = 'rgba(102, 252, 241, 0.08)';
-    ctx.fill();
-    // دسته متحرک
-    ctx.beginPath();
-    ctx.arc(this.baseX + this.joyX, this.baseY + this.joyY, 24, 0, Math.PI * 2);
-    ctx.fillStyle = 'rgba(102, 252, 241, 0.5)';
-    ctx.fill();
-    ctx.strokeStyle = 'rgba(102, 252, 241, 0.8)';
-    ctx.lineWidth = 2;
-    ctx.stroke();
-    ctx.restore();
-  }
 }
 
 /**
@@ -895,7 +873,6 @@ class GameEngine {
     for (const bullet of this.bullets) bullet.draw(this.ctx);
     for (const enemy of this.enemies) enemy.draw(this.ctx);
     this.player.draw(this.ctx);
-    this.input.draw(this.ctx);   // جوی‌استیک مجازی روی بوم رسم می‌شود
   }
 
   updateHUD(now) {
