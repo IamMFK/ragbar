@@ -279,11 +279,23 @@ class SoundController {
 }
 
 /**
- * مدیریت ورودی کیبورد
+ * مدیریت ورودی‌ها (کیبورد و جوی‌استیک لمسی موبایل)
  */
 class InputHandler {
   constructor() {
     this.keys = {};
+    this.joystick = {
+      active: false,
+      identifier: null,
+      startX: 0,
+      startY: 0,
+      x: 0,
+      y: 0,
+      dx: 0,
+      dy: 0
+    };
+
+    // رویدادهای کیبورد
     window.addEventListener('keydown', (e) => {
       this.keys[e.key.toLowerCase()] = true;
       if (sound) sound.init();
@@ -291,10 +303,104 @@ class InputHandler {
     window.addEventListener('keyup', (e) => {
       this.keys[e.key.toLowerCase()] = false;
     });
+
+    // رویدادهای لمسی برای موبایل (جوی‌استیک شناور)
+    window.addEventListener('touchstart', (e) => {
+      if (sound) sound.init();
+      // اگر روی دکمه یا مودال کلیک نشده باشد جوی‌استیک فعال شود
+      if (e.target.closest('.modal') || e.target.closest('button')) return;
+
+      for (let touch of e.changedTouches) {
+        if (!this.joystick.active) {
+          this.joystick.active = true;
+          this.joystick.identifier = touch.identifier;
+          this.joystick.startX = touch.clientX;
+          this.joystick.startY = touch.clientY;
+          this.joystick.x = touch.clientX;
+          this.joystick.y = touch.clientY;
+          this.joystick.dx = 0;
+          this.joystick.dy = 0;
+          break;
+        }
+      }
+    }, { passive: true });
+
+    window.addEventListener('touchmove', (e) => {
+      if (!this.joystick.active) return;
+      for (let touch of e.changedTouches) {
+        if (touch.identifier === this.joystick.identifier) {
+          this.joystick.x = touch.clientX;
+          this.joystick.y = touch.clientY;
+          
+          let dx = this.joystick.x - this.joystick.startX;
+          let dy = this.joystick.y - this.joystick.startY;
+          let dist = Math.hypot(dx, dy);
+          let maxDist = 40; // شعاع حداکثر جوی‌استیک
+
+          if (dist > maxDist) {
+            dx = (dx / dist) * maxDist;
+            dy = (dy / dist) * maxDist;
+          }
+
+          // نرمال‌سازی بردار حرکت بین -1 و 1
+          this.joystick.dx = dx / maxDist;
+          this.joystick.dy = dy / maxDist;
+          break;
+        }
+      }
+    }, { passive: true });
+
+    window.addEventListener('touchend', (e) => {
+      if (!this.joystick.active) return;
+      for (let touch of e.changedTouches) {
+        if (touch.identifier === this.joystick.identifier) {
+          this.resetJoystick();
+          break;
+        }
+      }
+    }, { passive: true });
+
+    window.addEventListener('touchcancel', (e) => {
+      if (!this.joystick.active) return;
+      for (let touch of e.changedTouches) {
+        if (touch.identifier === this.joystick.identifier) {
+          this.resetJoystick();
+          break;
+        }
+      }
+    }, { passive: true });
+  }
+
+  resetJoystick() {
+    this.joystick.active = false;
+    this.joystick.identifier = null;
+    this.joystick.dx = 0;
+    this.joystick.dy = 0;
   }
 
   isDown(key) {
     return !!this.keys[key];
+  }
+
+  getMovementVector() {
+    let dx = 0;
+    let dy = 0;
+
+    if (this.isDown('w') || this.isDown('arrowup')) dy -= 1;
+    if (this.isDown('s') || this.isDown('arrowdown')) dy += 1;
+    if (this.isDown('a') || this.isDown('arrowleft')) dx -= 1;
+    if (this.isDown('d') || this.isDown('arrowright')) dx += 1;
+
+    // اگر کیبورد فشرده نشده بود، مقدار جوی‌استیک موبایل را بررسی کن
+    if (dx === 0 && dy === 0 && this.joystick.active) {
+      dx = this.joystick.dx;
+      dy = this.joystick.dy;
+    } else if (dx !== 0 && dy !== 0) {
+      dx *= 0.7071;
+      dy *= 0.7071;
+    }
+
+    return { dx, dy };
   }
 }
 
@@ -322,18 +428,9 @@ class Player {
   }
 
   update(input, width, height) {
-    let dx = 0;
-    let dy = 0;
-
-    if (input.isDown('w') || input.isDown('arrowup')) dy -= 1;
-    if (input.isDown('s') || input.isDown('arrowdown')) dy += 1;
-    if (input.isDown('a') || input.isDown('arrowleft')) dx -= 1;
-    if (input.isDown('d') || input.isDown('arrowright')) dx += 1;
-
-    if (dx !== 0 && dy !== 0) {
-      dx *= 0.7071;
-      dy *= 0.7071;
-    }
+    const move = input.getMovementVector();
+    let dx = move.dx;
+    let dy = move.dy;
 
     this.x = Math.max(this.radius, Math.min(width - this.radius, this.x + dx * this.speed));
     this.y = Math.max(this.radius, Math.min(height - this.radius, this.y + dy * this.speed));
@@ -428,6 +525,13 @@ class Enemy {
       this.hp = 20;
       this.damage = 8;
       this.xpValue = 2;
+    } else if (type === 'tank') {
+      this.radius = 20;
+      this.color = '#8e44ad';
+      this.speed = 0.85;
+      this.hp = 140;
+      this.damage = 20;
+      this.xpValue = 5;
     } else {
       this.radius = 14;
       this.color = '#e74c3c';
@@ -460,15 +564,21 @@ class Enemy {
  * کریستال تجربه
  */
 class Gem {
-  constructor(x, y, value) {
+  constructor(x, y, value, now) {
     this.x = x;
     this.y = y;
     this.value = value;
     this.radius = 5;
+    this.spawnTime = now;
     this.markedForDeletion = false;
   }
 
-  update(player) {
+  update(player, now) {
+    // حذف خودکار پس از ۱۵ ثانیه
+    if (now - this.spawnTime > 15000) {
+      this.markedForDeletion = true;
+      return;
+    }
     const dx = player.x - this.x;
     const dy = player.y - this.y;
     const dist = Math.hypot(dx, dy);
@@ -557,7 +667,8 @@ class GameEngine {
       { id: 'move_speed', title: 'سرعت حرکت', desc: 'سرعت جابجایی کاراکتر ۱۵٪ افزایش می‌یابد.', apply: () => this.player.speed += 0.5 },
       { id: 'damage', title: 'قدرت تخریب گلوله', desc: 'آسیب وارده توسط هر گلوله ۳۰٪ بیشتر می‌شود.', apply: () => this.player.bulletDamage += 10 },
       { id: 'heal', title: 'ترمیم و افزایش سلامت', desc: 'جان فعلی بازیکن پر شده و حداکثر جان ۲۰ واحد اضافه می‌شود.', apply: () => { this.player.maxHp += 20; this.player.hp = this.player.maxHp; } },
-      { id: 'multishot', title: 'تیراندازی چندگانه', desc: 'تعداد گلوله‌های شلیک‌شده در هر نوبت افزایش می‌یابد.', apply: () => this.player.bulletCount += 1 }
+      { id: 'multishot', title: 'تیراندازی چندگانه', desc: 'تعداد گلوله‌های شلیک‌شده در هر نوبت افزایش می‌یابد.', apply: () => this.player.bulletCount += 1 },
+      { id: 'pierce', title: 'نفوذ تیر (Pierce +)', desc: 'گلوله‌ها می‌توانند از یک دشمن بیشتر عبور کنند.', apply: () => this.player.pierce += 1 }
     ];
 
     this.loop = this.loop.bind(this);
@@ -579,8 +690,16 @@ class GameEngine {
     else if (edge === 2) { x = Math.random() * this.width; y = this.height + 20; }
     else { x = -20; y = Math.random() * this.height; }
 
-    const isFast = Math.random() < 0.25;
-    this.enemies.push(new Enemy(x, y, isFast ? 'fast' : 'normal'));
+    // انتخاب نوع دشمن بر اساس Level بازیکن
+    const level = this.player.level;
+    const rand = Math.random();
+    let type = 'normal';
+    if (level >= 8 && rand < 0.20) {
+      type = 'tank';
+    } else if (level >= 3 && rand < Math.min(0.95, 0.25 + (level * 0.02))) {
+      type = 'fast';
+    }
+    this.enemies.push(new Enemy(x, y, type));
   }
 
   handleAutoShoot(currentTime) {
@@ -664,7 +783,7 @@ class GameEngine {
             if (enemy.hp <= 0) {
               enemy.markedForDeletion = true;
               this.kills++;
-              this.gems.push(new Gem(enemy.x, enemy.y, enemy.xpValue));
+              this.gems.push(new Gem(enemy.x, enemy.y, enemy.xpValue, now));
               for (let i = 0; i < 8; i++) {
                 this.particles.push(new Particle(enemy.x, enemy.y, enemy.color));
               }
@@ -675,7 +794,7 @@ class GameEngine {
     }
 
     for (const gem of this.gems) {
-      gem.update(this.player);
+      gem.update(this.player, now);
       const dist = Math.hypot(gem.x - this.player.x, gem.y - this.player.y);
       if (dist < gem.radius + this.player.radius) {
         gem.markedForDeletion = true;
@@ -720,6 +839,26 @@ class GameEngine {
     for (const bullet of this.bullets) bullet.draw(this.ctx);
     for (const enemy of this.enemies) enemy.draw(this.ctx);
     this.player.draw(this.ctx);
+
+    // رسم جوی‌استیک لمسی روی صفحه در صورت لمس موبایل
+    if (this.input.joystick.active) {
+      this.ctx.save();
+      // دایره پس‌زمینه جوی‌استیک
+      this.ctx.beginPath();
+      this.ctx.arc(this.input.joystick.startX, this.input.joystick.startY, 40, 0, Math.PI * 2);
+      this.ctx.fillStyle = 'rgba(102, 252, 241, 0.1)';
+      this.ctx.strokeStyle = 'rgba(102, 252, 241, 0.3)';
+      this.ctx.lineWidth = 2;
+      this.ctx.fill();
+      this.ctx.stroke();
+
+      // دکمه متحرک جوی‌استیک
+      this.ctx.beginPath();
+      this.ctx.arc(this.input.joystick.x, this.input.joystick.y, 20, 0, Math.PI * 2);
+      this.ctx.fillStyle = 'rgba(102, 252, 241, 0.4)';
+      this.ctx.fill();
+      this.ctx.restore();
+    }
   }
 
   updateHUD(now) {
