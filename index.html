@@ -4,7 +4,7 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
   <title>Ragbar</title>
-<style>
+  <style>
     * {
       box-sizing: border-box;
       margin: 0;
@@ -292,22 +292,21 @@ class SoundController {
 }
 
 /**
- * مدیریت ورودی کیبورد
+ * مدیریت ورودی کیبورد + درگ مستقیم (بدون نمایش هیچ عنصر گرافیکی)
+ * هیچ جوی‌استیک یا دایره‌ای روی صفحه رسم یا نمایش داده نمی‌شود؛
+ * فقط جابه‌جایی (delta) از نقطه شروع درگ محاسبه می‌شود.
  */
 class InputHandler {
   constructor(canvas) {
     this.keys = {};
-    this.joyActive = false;
-    this.joyId = null;
+    this.canvas = canvas;
+    // حالت درگ (هم برای لمس و هم موس) - کاملاً نامرئی
+    this.dragActive = false;
+    this.dragId = null;
     this.baseX = 0;
     this.baseY = 0;
-    this.joyX = 0;
-    this.joyY = 0;
-    this.joyRadius = 60;
-    this.joyBase = 45;      // شعاع پایه روی صفحه
-    this.joyKnob = 0;       // شعاع دسته متحرک
-    this.maxKnob = this.joyRadius;
-    this.canvas = canvas;
+    this.dragX = 0;
+    this.dragY = 0;
 
     window.addEventListener('keydown', (e) => {
       this.keys[e.key.toLowerCase()] = true;
@@ -317,50 +316,46 @@ class InputHandler {
       this.keys[e.key.toLowerCase()] = false;
     });
 
-    // --- جوی‌استیک لمسی شناور: با هر لمس، پایه جوی‌استیک همانجا ساخته می‌شود ---
-    // ابتدا Pointer Events (اندروید/کروم و iOS 13+)، در غیر این صورت Touch Events
     const opts = { passive: false };
-    if (window.PointerEvent) {
-      canvas.addEventListener('pointerdown', (e) => {
-        e.preventDefault();
-        canvas.setPointerCapture && canvas.setPointerCapture(e.pointerId);
-        this.startJoy(e.pointerId, e.clientX, e.clientY);
-      }, opts);
-      canvas.addEventListener('pointermove', (e) => {
-        if (e.pointerType === 'mouse') return;
-        e.preventDefault();
-        this.moveJoy(e.pointerId, e.clientX, e.clientY);
-      }, opts);
-      const endPointer = (e) => {
-        e.preventDefault();
-        this.endJoy(e.pointerId);
-      };
-      canvas.addEventListener('pointerup', endPointer, opts);
-      canvas.addEventListener('pointercancel', endPointer, opts);
-    } else {
-      canvas.addEventListener('touchstart', (e) => {
-        e.preventDefault();
-        if (sound) sound.init();
-        if (!this.joyActive) {
-          const t = e.changedTouches[0];
-          this.startJoy(t.identifier, t.clientX, t.clientY);
-        }
-      }, opts);
-      canvas.addEventListener('touchmove', (e) => {
-        e.preventDefault();
-        for (const t of e.changedTouches) {
-          this.moveJoy(t.identifier, t.clientX, t.clientY);
-        }
-      }, opts);
-      const endTouch = (e) => {
-        e.preventDefault();
-        for (const t of e.changedTouches) {
-          this.endJoy(t.identifier);
-        }
-      };
-      canvas.addEventListener('touchend', endTouch, opts);
-      canvas.addEventListener('touchcancel', endTouch, opts);
-    }
+    const rect = () => canvas.getBoundingClientRect();
+
+    // --- لمس (Touch Events) ---
+    canvas.addEventListener('touchstart', (e) => {
+      e.preventDefault();
+      if (sound) sound.init();
+      if (!this.dragActive) {
+        const t = e.changedTouches[0];
+        this.startDrag(t.identifier, t.clientX - rect().left, t.clientY - rect().top);
+      }
+    }, opts);
+    canvas.addEventListener('touchmove', (e) => {
+      e.preventDefault();
+      for (const t of e.changedTouches) {
+        this.moveDrag(t.identifier, t.clientX - rect().left, t.clientY - rect().top);
+      }
+    }, opts);
+    const endTouch = (e) => {
+      e.preventDefault();
+      for (const t of e.changedTouches) {
+        this.endDrag(t.identifier);
+      }
+    };
+    canvas.addEventListener('touchend', endTouch, opts);
+    canvas.addEventListener('touchcancel', endTouch, opts);
+
+    // --- موس دسکتاپ (Mouse Events) ---
+    // کلیک موس هم فقط حرکت با درگ را فعال می‌کند و هیچ نشانگری رسم نمی‌شود.
+    canvas.addEventListener('mousedown', (e) => {
+      if (sound) sound.init();
+      e.preventDefault();
+      this.startDrag('mouse', e.clientX - rect().left, e.clientY - rect().top);
+    }, opts);
+    window.addEventListener('mousemove', (e) => {
+      this.moveDrag('mouse', e.clientX - rect().left, e.clientY - rect().top);
+    });
+    window.addEventListener('mouseup', (e) => {
+      this.endDrag('mouse');
+    });
 
     // جلوگیری از اسکرول/زوم ناخواسته در iOS
     document.addEventListener('gesturestart', (e) => e.preventDefault());
@@ -369,55 +364,44 @@ class InputHandler {
     }, { passive: false });
   }
 
-  startJoy(id, x, y) {
-    if (sound) sound.init();
-    if (this.joyActive) return;
-    this.joyId = id;
-    this.joyActive = true;
+  startDrag(id, x, y) {
+    if (this.dragActive) return;
+    this.dragActive = true;
+    this.dragId = id;
     this.baseX = x;
     this.baseY = y;
-    this.joyX = 0;
-    this.joyY = 0;
-    this.joyKnob = 0;
+    this.dragX = 0;
+    this.dragY = 0;
   }
 
-  moveJoy(id, x, y) {
-    if (!this.joyActive || id !== this.joyId) return;
-    let dx = x - this.baseX;
-    let dy = y - this.baseY;
-    const dist = Math.hypot(dx, dy);
-    if (dist > this.joyRadius) {
-      dx = (dx / dist) * this.joyRadius;
-      dy = (dy / dist) * this.joyRadius;
-    }
-    this.joyX = dx;
-    this.joyY = dy;
-    this.joyKnob = Math.min(dist, this.joyRadius);
+  moveDrag(id, x, y) {
+    if (!this.dragActive || id !== this.dragId) return;
+    this.dragX = x - this.baseX;
+    this.dragY = y - this.baseY;
   }
 
-  endJoy(id) {
-    if (!this.joyActive || id !== this.joyId) return;
-    this.joyActive = false;
-    this.joyId = null;
-    this.joyX = 0;
-    this.joyY = 0;
-    this.joyKnob = 0;
+  endDrag(id) {
+    if (!this.dragActive || id !== this.dragId) return;
+    this.dragActive = false;
+    this.dragId = null;
+    this.dragX = 0;
+    this.dragY = 0;
   }
 
   isDown(key) {
     return !!this.keys[key];
   }
 
-  // بردار حرکت نرمال‌شده از جوی‌استیک (اگر فعال باشد)
+  // بردار حرکت نرمال‌شده از درگ (اگر فعال باشد) - بدون هیچ نمایش گرافیکی
   getJoystickVector() {
-    if (!this.joyActive || this.joyKnob < 6) return null;
-    return { x: this.joyX / this.joyRadius, y: this.joyY / this.joyRadius };
+    if (!this.dragActive) return null;
+    const dist = Math.hypot(this.dragX, this.dragY);
+    if (dist < 6) return null;
+    const scale = Math.min(dist, 60) / dist;
+    return { x: (this.dragX * scale) / 60, y: (this.dragY * scale) / 60 };
   }
 }
 
-/**
- * بازیکن
- */
 class Player {
   constructor(x, y) {
     this.x = x;
