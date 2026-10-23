@@ -67,6 +67,7 @@
       padding: 8px 16px;
       border-radius: 8px;
       backdrop-filter: blur(4px);
+      direction: rtl;
     }
 
     #xp-bar-container {
@@ -182,10 +183,10 @@
   </div>
 
   <div id="hud">
-    <div class="hud-box">Level: <span id="lvl-display">1</span></div>
-    <div class="hud-box">HP: <span id="hp-display">100 / 100</span></div>
-    <div class="hud-box">Kills: <span id="kill-display">0</span></div>
-    <div class="hud-box">Time: <span id="time-display">00:00</span></div>
+    <div class="hud-box">سطح: <span id="lvl-display">1</span></div>
+    <div class="hud-box">جان: <span id="hp-display">100 / 100</span></div>
+    <div class="hud-box">کشتن: <span id="kill-display">0</span></div>
+    <div class="hud-box">زمان: <span id="time-display">00:00</span></div>
   </div>
 
   <canvas id="gameCanvas"></canvas>
@@ -222,7 +223,6 @@ class SoundController {
       }
     }
     if (this.ctx && this.ctx.state === 'suspended') {
-      // پیکربندی مجدد برای iOS/Safari: باید داخل رخداد کاربر صدا زده شود
       const pr = this.ctx.resume();
       if (pr && pr.catch) pr.catch(() => {});
     }
@@ -292,15 +292,12 @@ class SoundController {
 }
 
 /**
- * مدیریت ورودی کیبورد + درگ مستقیم (بدون نمایش هیچ عنصر گرافیکی)
- * هیچ جوی‌استیک یا دایره‌ای روی صفحه رسم یا نمایش داده نمی‌شود؛
- * فقط جابه‌جایی (delta) از نقطه شروع درگ محاسبه می‌شود.
+ * مدیریت ورودی کیبورد + درگ مستقیم (بدون نمایش گرافیکی)
  */
 class InputHandler {
   constructor(canvas) {
     this.keys = {};
     this.canvas = canvas;
-    // حالت درگ (هم برای لمس و هم موس) - کاملاً نامرئی
     this.dragActive = false;
     this.dragId = null;
     this.baseX = 0;
@@ -319,7 +316,6 @@ class InputHandler {
     const opts = { passive: false };
     const rect = () => canvas.getBoundingClientRect();
 
-    // --- لمس (Touch Events) ---
     canvas.addEventListener('touchstart', (e) => {
       e.preventDefault();
       if (sound) sound.init();
@@ -343,8 +339,6 @@ class InputHandler {
     canvas.addEventListener('touchend', endTouch, opts);
     canvas.addEventListener('touchcancel', endTouch, opts);
 
-    // --- موس دسکتاپ (Mouse Events) ---
-    // کلیک موس هم فقط حرکت با درگ را فعال می‌کند و هیچ نشانگری رسم نمی‌شود.
     canvas.addEventListener('mousedown', (e) => {
       if (sound) sound.init();
       e.preventDefault();
@@ -357,7 +351,6 @@ class InputHandler {
       this.endDrag('mouse');
     });
 
-    // جلوگیری از اسکرول/زوم ناخواسته در iOS
     document.addEventListener('gesturestart', (e) => e.preventDefault());
     document.addEventListener('touchmove', (e) => {
       if (e.target === canvas) e.preventDefault();
@@ -392,13 +385,13 @@ class InputHandler {
     return !!this.keys[key];
   }
 
-  // بردار حرکت نرمال‌شده از درگ (اگر فعال باشد) - بدون هیچ نمایش گرافیکی
   getJoystickVector() {
     if (!this.dragActive) return null;
     const dist = Math.hypot(this.dragX, this.dragY);
-    if (dist < 6) return null;
-    const scale = Math.min(dist, 60) / dist;
-    return { x: (this.dragX * scale) / 60, y: (this.dragY * scale) / 60 };
+    if (dist < 8) return null;
+    const maxRadius = 120;
+    const scale = Math.min(dist, maxRadius) / dist;
+    return { x: (this.dragX * scale) / maxRadius, y: (this.dragY * scale) / maxRadius };
   }
 }
 
@@ -408,44 +401,42 @@ class Player {
     this.y = y;
     this.radius = 16;
     this.color = '#66fcf1';
-    this.speed = 3.2;
+    this.speed = 220; // سرعت بر حسب پیکسل بر ثانیه (مناسب برای Delta Time)
     this.maxHp = 100;
     this.hp = 100;
     this.level = 1;
     this.xp = 0;
     this.nextXp = 10;
-    this.shootInterval = 400;
+    this.shootInterval = 400; // میلی‌ثانیه
     this.lastShoot = 0;
     this.bulletDamage = 25;
-    this.bulletSpeed = 8;
+    this.bulletSpeed = 500; // پیکسل بر ثانیه
     this.pierce = 1;
     this.bulletCount = 1;
   }
 
-  update(input, width, height) {
+  update(input, width, height, dt) {
     let dx = 0;
     let dy = 0;
 
-    // ورودی جوی‌استیک لمسی
     const jv = input.getJoystickVector();
     if (jv) {
       dx = jv.x;
       dy = jv.y;
     } else {
-    // ورودی کیبورد (WASD / جهت‌نما)
-    if (input.isDown('w') || input.isDown('arrowup')) dy -= 1;
-    if (input.isDown('s') || input.isDown('arrowdown')) dy += 1;
-    if (input.isDown('a') || input.isDown('arrowleft')) dx -= 1;
-    if (input.isDown('d') || input.isDown('arrowright')) dx += 1;
+      if (input.isDown('w') || input.isDown('arrowup')) dy -= 1;
+      if (input.isDown('s') || input.isDown('arrowdown')) dy += 1;
+      if (input.isDown('a') || input.isDown('arrowleft')) dx -= 1;
+      if (input.isDown('d') || input.isDown('arrowright')) dx += 1;
 
-    if (dx !== 0 && dy !== 0) {
-      dx *= 0.7071;
-      dy *= 0.7071;
-    }
+      if (dx !== 0 && dy !== 0) {
+        dx *= 0.7071;
+        dy *= 0.7071;
+      }
     }
 
-    this.x = Math.max(this.radius, Math.min(width - this.radius, this.x + dx * this.speed));
-    this.y = Math.max(this.radius, Math.min(height - this.radius, this.y + dy * this.speed));
+    this.x = Math.max(this.radius, Math.min(width - this.radius, this.x + dx * this.speed * dt));
+    this.y = Math.max(this.radius, Math.min(height - this.radius, this.y + dy * this.speed * dt));
   }
 
   draw(ctx) {
@@ -500,9 +491,9 @@ class Bullet {
     this.vy = Math.sin(angle) * this.speed;
   }
 
-  update(width, height) {
-    this.x += this.vx;
-    this.y += this.vy;
+  update(width, height, dt) {
+    this.x += this.vx * dt;
+    this.y += this.vy * dt;
     if (this.x < 0 || this.x > width || this.y < 0 || this.y > height) {
       this.markedForDeletion = true;
     }
@@ -533,31 +524,31 @@ class Enemy {
     if (type === 'fast') {
       this.radius = 10;
       this.color = '#ff0055';
-      this.speed = 2.4;
+      this.speed = 160; // پیکسل بر ثانیه
       this.hp = 20;
       this.damage = 8;
       this.xpValue = 2;
     } else if (type === 'tank') {
       this.radius = 20;
       this.color = '#8e44ad';
-      this.speed = 0.85;
+      this.speed = 60; // پیکسل بر ثانیه
       this.hp = 140;
       this.damage = 20;
       this.xpValue = 5;
     } else {
       this.radius = 14;
       this.color = '#e74c3c';
-      this.speed = 1.3;
+      this.speed = 90; // پیکسل بر ثانیه
       this.hp = 50;
       this.damage = 12;
       this.xpValue = 1;
     }
   }
 
-  update(player) {
+  update(player, dt) {
     const angle = Math.atan2(player.y - this.y, player.x - this.x);
-    this.x += Math.cos(angle) * this.speed;
-    this.y += Math.sin(angle) * this.speed;
+    this.x += Math.cos(angle) * this.speed * dt;
+    this.y += Math.sin(angle) * this.speed * dt;
   }
 
   draw(ctx) {
@@ -585,8 +576,7 @@ class Gem {
     this.markedForDeletion = false;
   }
 
-  update(player, now) {
-    // حذف خودکار پس از ۱۵ ثانیه
+  update(player, now, dt) {
     if (now - this.spawnTime > 15000) {
       this.markedForDeletion = true;
       return;
@@ -596,8 +586,8 @@ class Gem {
     const dist = Math.hypot(dx, dy);
 
     if (dist < 120) {
-      this.x += (dx / dist) * 6;
-      this.y += (dy / dist) * 6;
+      this.x += (dx / dist) * 350 * dt;
+      this.y += (dy / dist) * 350 * dt;
     }
   }
 
@@ -623,18 +613,18 @@ class Particle {
     this.color = color;
     this.radius = Math.random() * 2.5 + 1;
     const angle = Math.random() * Math.PI * 2;
-    const speed = Math.random() * 3 + 1;
+    const speed = Math.random() * 120 + 40;
     this.vx = Math.cos(angle) * speed;
     this.vy = Math.sin(angle) * speed;
     this.alpha = 1;
-    this.decay = Math.random() * 0.03 + 0.02;
+    this.decay = Math.random() * 1.5 + 1.0; // سرعت محو شدن بر اساس ثانیه
     this.markedForDeletion = false;
   }
 
-  update() {
-    this.x += this.vx;
-    this.y += this.vy;
-    this.alpha -= this.decay;
+  update(dt) {
+    this.x += this.vx * dt;
+    this.y += this.vy * dt;
+    this.alpha -= this.decay * dt;
     if (this.alpha <= 0) this.markedForDeletion = true;
   }
 
@@ -661,7 +651,6 @@ class GameEngine {
 
     window.addEventListener('resize', () => this.resizeCanvas());
     window.addEventListener('orientationchange', () => setTimeout(() => this.resizeCanvas(), 100));
-    // visualViewport برای پوشش کامل صفحه در موبایل
     if (window.visualViewport) {
       window.visualViewport.addEventListener('resize', () => this.resizeCanvas());
     }
@@ -678,15 +667,15 @@ class GameEngine {
     this.startTime = 0;
     this.lastSpawnTime = 0;
     this.spawnInterval = 1000;
+    this.lastTime = 0;
 
     this.availableUpgrades = [
       { id: 'fire_rate', title: 'افزایش سرعت شلیک', desc: 'سرعت شلیک گلوله‌ها ۲۰٪ بیشتر می‌شود.', apply: () => this.player.shootInterval = Math.max(100, this.player.shootInterval * 0.8) },
-      { id: 'move_speed', title: 'سرعت حرکت', desc: 'سرعت جابجایی کاراکتر ۱۵٪ افزایش می‌یابد.', apply: () => this.player.speed += 0.5 },
+      { id: 'move_speed', title: 'سرعت حرکت', desc: 'سرعت جابجایی کاراکتر ۱۵٪ افزایش می‌یابد.', apply: () => this.player.speed += 30 },
       { id: 'damage', title: 'قدرت تخریب گلوله', desc: 'آسیب وارده توسط هر گلوله ۳۰٪ بیشتر می‌شود.', apply: () => this.player.bulletDamage += 10 },
       { id: 'heal', title: 'ترمیم و افزایش سلامت', desc: 'جان فعلی بازیکن پر شده و حداکثر جان ۲۰ واحد اضافه می‌شود.', apply: () => { this.player.maxHp += 20; this.player.hp = this.player.maxHp; } },
       { id: 'multishot', title: 'تیراندازی چندگانه', desc: 'تعداد گلوله‌های شلیک‌شده در هر نوبت افزایش می‌یابد.', apply: () => this.player.bulletCount += 1 },
-      { id: 'pierce', title: 'نفوذ تیر ', desc: 'گلوله‌ها می‌توانند از یک دشمن بیشتر عبور کنند.', apply: () => this.player.pierce += 1 }
-
+      { id: 'pierce', title: 'نفوذ تیر', desc: 'گلوله‌ها می‌توانند از یک دشمن بیشتر عبور کنند.', apply: () => this.player.pierce += 1 }
     ];
 
     this.loop = this.loop.bind(this);
@@ -708,7 +697,6 @@ class GameEngine {
     else if (edge === 2) { x = Math.random() * this.width; y = this.height + 20; }
     else { x = -20; y = Math.random() * this.height; }
 
-    // انتخاب نوع دشمن بر اساس Level بازیکن
     const level = this.player.level;
     const rand = Math.random();
     let type = 'normal';
@@ -751,7 +739,7 @@ class GameEngine {
     }
   }
 
-  update(now) {
+  update(now, dt) {
     if (!this.startTime) {
       this.startTime = now;
       this.lastSpawnTime = now;
@@ -759,9 +747,8 @@ class GameEngine {
 
     if (this.isPaused || this.isGameOver) return;
 
-    this.player.update(this.input, this.width, this.height);
+    this.player.update(this.input, this.width, this.height, dt);
 
-    // تولید دشمن به شکل پیوسته
     if (now - this.lastSpawnTime > this.spawnInterval) {
       this.spawnEnemy();
       this.lastSpawnTime = now;
@@ -771,15 +758,15 @@ class GameEngine {
     this.handleAutoShoot(now);
 
     for (const bullet of this.bullets) {
-      bullet.update(this.width, this.height);
+      bullet.update(this.width, this.height, dt);
     }
 
     for (const enemy of this.enemies) {
-      enemy.update(this.player);
+      enemy.update(this.player, dt);
 
       const distToPlayer = Math.hypot(enemy.x - this.player.x, enemy.y - this.player.y);
       if (distToPlayer < enemy.radius + this.player.radius) {
-        this.player.hp -= enemy.damage * 0.04;
+        this.player.hp -= enemy.damage * 2.2 * dt;
         if (this.player.hp <= 0) {
           this.gameOver(now);
         }
@@ -812,7 +799,7 @@ class GameEngine {
     }
 
     for (const gem of this.gems) {
-      gem.update(this.player, now);
+      gem.update(this.player, now, dt);
       const dist = Math.hypot(gem.x - this.player.x, gem.y - this.player.y);
       if (dist < gem.radius + this.player.radius) {
         gem.markedForDeletion = true;
@@ -822,7 +809,7 @@ class GameEngine {
     }
 
     for (const particle of this.particles) {
-      particle.update();
+      particle.update(dt);
     }
 
     this.bullets = this.bullets.filter(b => !b.markedForDeletion);
@@ -889,6 +876,7 @@ class GameEngine {
         upg.apply();
         modal.classList.add('hidden');
         this.isPaused = false;
+        this.lastTime = performance.now(); // جلوگیری از پرش حرکتی بعد از بستن مودال
       };
       container.appendChild(card);
     });
@@ -921,17 +909,24 @@ class GameEngine {
     this.lastSpawnTime = 0;
     this.isGameOver = false;
     this.isPaused = false;
+    this.lastTime = performance.now();
   }
 
   loop(timestamp) {
-    this.update(timestamp);
+    if (!this.lastTime) this.lastTime = timestamp;
+    let dt = (timestamp - this.lastTime) / 1000;
+    this.lastTime = timestamp;
+
+    // محدود کردن dt برای جلوگیری از پرش ناخواسته در صورت افت فریم شدید یا تب‌بک‌گراند
+    if (dt > 0.1) dt = 0.1;
+
+    this.update(timestamp, dt);
     this.render();
     requestAnimationFrame(this.loop);
   }
 }
 
 const sound = new SoundController();
-// بازکردن قفل صدا روی اولین تعامل کاربر (لمس/کلیک/کلید) — سازگار با iOS WebKit
 const unlockAudio = () => {
   sound.init();
   if (sound.ctx && sound.ctx.state === 'running') {
